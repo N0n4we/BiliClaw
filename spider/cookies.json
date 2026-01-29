@@ -1,0 +1,13 @@
+{
+  "cookies": [
+    {
+      "value": "SESSDATA=xxx; bili_jct=xxx;",
+      "name": "账号1",
+      "enabled": true
+    }
+  ],
+  "settings": {
+    "strategy": "round_robin",
+    "validate_on_load": false
+  }
+}
