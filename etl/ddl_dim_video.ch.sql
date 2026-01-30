@@ -1,0 +1,46 @@
+CREATE TABLE IF NOT EXISTS biliclaw.dim_video
+(
+    bvid String COMMENT '视频BVID',
+    aid UInt64 COMMENT '视频AID',
+    title String COMMENT '视频标题',
+    `desc` String COMMENT '视频简介',
+    pic String COMMENT '视频封面URL',
+    duration UInt32 COMMENT '视频时长(秒)',
+    videos UInt16 COMMENT '视频分P数',
+    tid UInt32 COMMENT '视频分区ID',
+    tid_v2 UInt32 COMMENT '视频分区ID v2',
+    tname String COMMENT '视频分区名称',
+    tname_v2 String COMMENT '视频分区名称 v2',
+    pubdate UInt32 COMMENT '视频发布时间戳',
+    ctime UInt32 COMMENT '视频创建时间戳',
+    copyright UInt8 COMMENT '版权类型(1=自制,2=转载)',
+    state Int16 COMMENT '视频状态',
+    dynamic String COMMENT '视频动态文案',
+    no_reprint UInt8 COMMENT '禁止转载',
+    autoplay UInt8 COMMENT '自动播放',
+    download UInt8 COMMENT '允许下载',
+    is_cooperation UInt8 COMMENT '是否联合投稿',
+    is_story UInt8 COMMENT '是否Story模式',
+    is_upower_exclusive UInt8 COMMENT '是否充电专属',
+    view_count UInt64 COMMENT '视频播放量',
+    danmaku_count UInt32 COMMENT '视频弹幕数',
+    reply_count UInt32 COMMENT '视频评论数',
+    favorite_count UInt32 COMMENT '视频收藏数',
+    coin_count UInt32 COMMENT '视频投币数',
+    share_count UInt32 COMMENT '视频分享数',
+    like_count UInt32 COMMENT '视频点赞数',
+    his_rank UInt32 COMMENT '历史最高排名',
+    now_rank UInt32 COMMENT '当前排名',
+    owner_mid UInt64 COMMENT 'UP主UID',
+    owner_name String COMMENT 'UP主昵称',
+    owner_face String COMMENT 'UP主头像URL',
+    season_id UInt64 COMMENT '合集ID',
+    dimension_width UInt16 COMMENT '视频宽度',
+    dimension_height UInt16 COMMENT '视频高度',
+    dimension_rotate UInt8 COMMENT '视频旋转',
+    etl_time DateTime DEFAULT now() COMMENT 'ETL处理时间'
+)
+ENGINE = ReplacingMergeTree(etl_time)
+ORDER BY (bvid, aid)
+SETTINGS index_granularity = 8192
+COMMENT 'B站视频维度表';
