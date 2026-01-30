@@ -55,3 +55,26 @@ def get_saved_comment_rpids(comment_dir):
         if filename.endswith(".json"):
             rpids.add(filename[:-5])
     return rpids
+
+
+def save_account(account, account_dir):
+    """保存单个用户信息到JSON文件"""
+    ensure_dir(account_dir)
+    mid = account.get("card", {}).get("mid")
+    if not mid:
+        return False
+    filepath = os.path.join(account_dir, f"{mid}.json")
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(account, f, ensure_ascii=False, indent=2)
+    return True
+
+
+def get_saved_account_mids(account_dir):
+    """获取已保存的用户mid列表"""
+    if not os.path.exists(account_dir):
+        return set()
+    mids = set()
+    for filename in os.listdir(account_dir):
+        if filename.endswith(".json"):
+            mids.add(filename[:-5])
+    return mids

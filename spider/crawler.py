@@ -5,29 +5,36 @@ import threading
 import queue
 import time
 import random
-from api import create_session, search_videos, get_video_aid, get_video_detail, get_main_comments, get_reply_comments
-from storage import save_video, save_comment, get_saved_video_bvids, get_saved_comment_rpids
+import json
+import os
+from api import create_session, search_videos, get_video_aid, get_video_detail, get_main_comments, get_reply_comments, get_user_card
+from storage import save_video, save_comment, save_account, get_saved_video_bvids, get_saved_comment_rpids, get_saved_account_mids
 
 
 class BiliCrawler:
-    def __init__(self, video_dir="videos", comment_dir="comments", delay_range=(1, 3), resume=True):
+    def __init__(self, video_dir="videos", comment_dir="comments", account_dir="accounts", delay_range=(1, 3), resume=True):
         self.video_dir = video_dir
         self.comment_dir = comment_dir
+        self.account_dir = account_dir
         self.delay_range = delay_range
         self.resume = resume  # 是否启用断点续传
         self.video_queue = queue.Queue()
         self.comment_queue = queue.Queue()
+        self.user_mids = set()  # 收集到的用户ID
         self.lock = threading.Lock()
         self.stats = {
             "videos_saved": 0,
             "comments_saved": 0,
             "replies_saved": 0,
+            "accounts_saved": 0,
             "videos_skipped": 0,
             "comments_skipped": 0,
+            "accounts_skipped": 0,
         }
         # 加载已保存的数据（用于断点续传）
         self.saved_bvids = get_saved_video_bvids(video_dir) if resume else set()
         self.saved_rpids = get_saved_comment_rpids(comment_dir) if resume else set()
+        self.saved_mids = get_saved_account_mids(account_dir) if resume else set()
 
     def _delay(self):
         """随机延迟"""
@@ -110,6 +117,10 @@ class BiliCrawler:
                 if save_video(detail, self.video_dir):
                     self.stats["videos_saved"] += 1
                     self.saved_bvids.add(bvid)  # 更新已保存集合
+                    # 收集视频作者的mid
+                    owner_mid = detail.get("owner", {}).get("mid")
+                    if owner_mid:
+                        self.user_mids.add(str(owner_mid))
                 detailed_videos.append(detail)
                 if (i + 1) % 10 == 0:
                     print(f"  已处理 {i+1}/{len(unique_videos)} 个视频")
@@ -152,6 +163,11 @@ class BiliCrawler:
 
                 for reply in replies:
                     rpid = str(reply.get("rpid", ""))
+                    # 收集评论者的mid
+                    comment_mid = reply.get("mid")
+                    if comment_mid:
+                        with self.lock:
+                            self.user_mids.add(str(comment_mid))
                     # 断点续传：跳过已保存的评论
                     if self.resume and rpid in self.saved_rpids:
                         with self.lock:
@@ -228,6 +244,11 @@ class BiliCrawler:
 
                 for reply in replies:
                     reply_rpid = str(reply.get("rpid", ""))
+                    # 收集评论者的mid
+                    reply_mid = reply.get("mid")
+                    if reply_mid:
+                        with self.lock:
+                            self.user_mids.add(str(reply_mid))
                     # 断点续传：跳过已保存的评论
                     if self.resume and reply_rpid in self.saved_rpids:
                         continue
@@ -270,6 +291,57 @@ class BiliCrawler:
 
         print(f"\n二级评论爬取完成，共保存 {self.stats['replies_saved']} 条回复")
 
+    # ========== 阶段4: 爬取用户信息 ==========
+    def account_worker(self, thread_id, mid_list, session):
+        """用户信息爬取线程的工作函数"""
+        for mid in mid_list:
+            # 断点续传：跳过已保存的用户
+            if self.resume and mid in self.saved_mids:
+                with self.lock:
+                    self.stats["accounts_skipped"] += 1
+                continue
+
+            user_data, error = get_user_card(mid, session)
+            if error:
+                print(f"[用户线程{thread_id}] 获取用户 {mid} 信息失败: {error}")
+            else:
+                if save_account(user_data, self.account_dir):
+                    with self.lock:
+                        self.stats["accounts_saved"] += 1
+                        self.saved_mids.add(mid)
+            self._delay()
+
+    def crawl_accounts_parallel(self, n_threads):
+        """多线程爬取用户信息"""
+        # 过滤已保存的用户
+        mids_to_fetch = [mid for mid in self.user_mids if mid not in self.saved_mids] if self.resume else list(self.user_mids)
+
+        print(f"\n{'='*50}")
+        print(f"阶段4: 爬取用户信息")
+        print(f"收集到的用户数: {len(self.user_mids)}, 待爬取: {len(mids_to_fetch)}, 线程数: {n_threads}")
+        print(f"{'='*50}")
+
+        if not mids_to_fetch:
+            print("没有需要爬取的用户信息")
+            return
+
+        # 将用户ID分配给各线程
+        chunk_size = (len(mids_to_fetch) + n_threads - 1) // n_threads
+        mid_chunks = [mids_to_fetch[i:i + chunk_size] for i in range(0, len(mids_to_fetch), chunk_size)]
+
+        threads = []
+        sessions = [create_session() for _ in range(len(mid_chunks))]
+
+        for i, chunk in enumerate(mid_chunks):
+            t = threading.Thread(target=self.account_worker, args=(i, chunk, sessions[i]))
+            threads.append(t)
+            t.start()
+
+        for t in threads:
+            t.join()
+
+        print(f"\n用户信息爬取完成，共保存 {self.stats['accounts_saved']} 个用户")
+
     # ========== 主流程 ==========
     def run(self, keyword, n_threads=3, pages_per_thread=2):
         """
@@ -287,6 +359,7 @@ class BiliCrawler:
         print(f"预计搜索视频数: ~{n_threads * pages_per_thread * 50}")
         print(f"视频保存目录: {self.video_dir}/")
         print(f"评论保存目录: {self.comment_dir}/")
+        print(f"用户保存目录: {self.account_dir}/")
 
         # 阶段1: 搜索视频
         videos = self.search_videos_parallel(keyword, n_threads, pages_per_thread)
@@ -301,6 +374,9 @@ class BiliCrawler:
         # 阶段3: 爬取二级评论
         self.crawl_replies_parallel(n_threads)
 
+        # 阶段4: 爬取用户信息
+        self.crawl_accounts_parallel(n_threads)
+
         # 统计
         print("\n" + "=" * 60)
         print("爬虫完成!")
@@ -313,3 +389,6 @@ class BiliCrawler:
             print(f"跳过评论数（已存在）: {self.stats['comments_skipped']}")
         print(f"保存二级评论数: {self.stats['replies_saved']}")
         print(f"总评论数: {self.stats['comments_saved'] + self.stats['replies_saved']}")
+        print(f"保存用户数: {self.stats['accounts_saved']}")
+        if self.stats.get('accounts_skipped', 0) > 0:
+            print(f"跳过用户数（已存在）: {self.stats['accounts_skipped']}")

@@ -88,7 +88,7 @@ def _get_error_return(func_name: str, error: str):
     """根据函数名返回对应格式的错误结果"""
     if func_name == "search_videos":
         return [], 0, error
-    elif func_name in ("get_video_aid", "get_video_detail"):
+    elif func_name in ("get_video_aid", "get_video_detail", "get_user_card"):
         return None, error
     elif func_name == "get_main_comments":
         return [], 0, True, error
@@ -269,3 +269,32 @@ def get_reply_comments(oid, root_rpid, page=1, page_size=20, session=None):
 
     except Exception as e:
         return [], 0, str(e)
+
+
+@retry_with_backoff(max_retries=3)
+def get_user_card(mid, session=None):
+    """
+    获取用户名片信息
+    返回: (user_data, error_msg)
+    """
+    url = "https://api.bilibili.com/x/web-interface/card"
+    params = {"mid": mid, "photo": "true"}
+
+    try:
+        if session:
+            response = session.get(url, params=params, timeout=10)
+        else:
+            response = requests.get(url, headers=DEFAULT_HEADERS, params=params, timeout=10)
+
+        data = response.json()
+
+        code = data.get("code", 0)
+        if code == 0:
+            return data["data"], None
+        else:
+            if session:
+                _handle_cookie_error(session, code)
+            return None, data.get('message', 'Unknown error')
+
+    except Exception as e:
+        return None, str(e)
