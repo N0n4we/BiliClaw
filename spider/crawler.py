@@ -1,12 +1,17 @@
 """
-爬虫主模块 - 并行管道架构
+爬虫主模块
 """
 import threading
 import queue
 import time
 import random
 from api import create_session, search_videos, get_video_aid, get_video_detail, get_main_comments, get_reply_comments, get_user_card
-from storage import save_video, save_comment, save_account, get_saved_video_bvids, get_saved_comment_rpids, get_saved_account_mids
+from storage import (
+    save_video, save_comment, save_account,
+    get_saved_video_bvids, get_saved_comment_rpids, get_saved_account_mids,
+    save_video_comment_progress, mark_video_comments_done,
+    get_video_comment_progress, load_all_video_progress
+)
 
 
 class BiliCrawler:
@@ -33,6 +38,7 @@ class BiliCrawler:
         self.saved_bvids = get_saved_video_bvids(video_dir) if resume else set()
         self.saved_rpids = get_saved_comment_rpids(comment_dir) if resume else set()
         self.saved_mids = get_saved_account_mids(account_dir) if resume else set()
+        self.video_progress = load_all_video_progress() if resume else {}
 
         self.video_producers_done = threading.Event()
         self.comment_producers_done = threading.Event()
@@ -118,18 +124,22 @@ class BiliCrawler:
 
         if self.resume and self.saved_bvids:
             before_count = len(unique_videos)
-            unique_videos = [v for v in unique_videos if v.get("bvid") not in self.saved_bvids]
+            new_videos = []
+            for v in unique_videos:
+                bvid = v.get("bvid")
+                if bvid in self.saved_bvids:
+                    self.video_queue.put(v)
+                else:
+                    new_videos.append(v)
+            unique_videos = new_videos
             skipped = before_count - len(unique_videos)
             if skipped > 0:
                 self.stats["videos_skipped"] = skipped
                 print(f"断点续传: 跳过 {skipped} 个已保存的视频，剩余 {len(unique_videos)} 个待处理")
-                for v in results:
-                    bvid = v.get("bvid")
-                    if bvid in self.saved_bvids:
-                        self.video_queue.put(v)
 
         if not unique_videos:
             print("没有新视频需要获取详情")
+            self.video_producers_done.set()
             return 0
 
         print(f"\n正在获取视频详细信息...")
@@ -165,21 +175,33 @@ class BiliCrawler:
             bvid = video.get("bvid")
             aid = video.get("aid")
 
+            progress = get_video_comment_progress(bvid)
+            if self.resume and progress["done"]:
+                print(f"[评论线程{thread_id}] {bvid} 评论已爬完，跳过")
+                continue
+
             if not aid:
-                aid, error = get_video_aid(bvid, session)
-                if error:
-                    print(f"[评论线程{thread_id}] 获取 {bvid} 的aid失败: {error}")
-                    continue
-                self._delay()
+                if progress["aid"]:
+                    aid = progress["aid"]
+                else:
+                    aid, error = get_video_aid(bvid, session)
+                    if error:
+                        print(f"[评论线程{thread_id}] 获取 {bvid} 的aid失败: {error}")
+                        continue
+                    self._delay()
 
-            print(f"[评论线程{thread_id}] 开始爬取 {bvid} (aid={aid}) 的评论...")
+            cursor = progress["cursor"] if self.resume else 0
+            if cursor > 0:
+                print(f"[评论线程{thread_id}] {bvid} (aid={aid}) 从游标 {cursor} 恢复爬取...")
+            else:
+                print(f"[评论线程{thread_id}] 开始爬取 {bvid} (aid={aid}) 的评论...")
 
-            cursor = 0
             comment_count = 0
             while True:
                 replies, next_cursor, is_end, error = get_main_comments(aid, cursor, session)
                 if error:
                     print(f"[评论线程{thread_id}] {bvid} 评论获取错误: {error}")
+                    save_video_comment_progress(bvid, cursor, aid)
                     break
 
                 for reply in replies:
@@ -202,8 +224,11 @@ class BiliCrawler:
                             self.comment_queue.put((aid, reply))
 
                 if is_end or not replies:
+                    mark_video_comments_done(bvid)
                     break
+
                 cursor = next_cursor
+                save_video_comment_progress(bvid, cursor, aid)
                 self._delay()
 
             print(f"[评论线程{thread_id}] {bvid} 爬取完成，共 {comment_count} 条一级评论")
@@ -246,6 +271,7 @@ class BiliCrawler:
                     if reply_mid:
                         self._add_user_mid(reply_mid)
                     if self.resume and reply_rpid in self.saved_rpids:
+                        total_fetched += 1
                         continue
                     if save_comment(reply, self.comment_dir):
                         with self.lock:
@@ -329,6 +355,11 @@ class BiliCrawler:
         print(f"评论保存目录: {self.comment_dir}/")
         print(f"用户保存目录: {self.account_dir}/")
         print(f"断点续传: {'启用' if self.resume else '禁用'}")
+        if self.resume and self.video_progress:
+            done_count = sum(1 for p in self.video_progress.values() if p.get("done"))
+            in_progress_count = sum(1 for p in self.video_progress.values() if not p.get("done") and p.get("cursor", 0) > 0)
+            print(f"  - 已完成评论爬取的视频: {done_count}")
+            print(f"  - 评论爬取中断的视频: {in_progress_count}")
 
         print("\n启动并行管道...")
         print("  - 评论worker: 等待视频...")

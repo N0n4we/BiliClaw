@@ -3,41 +3,40 @@
 """
 import os
 import json
+import threading
 from kafka import KafkaProducer
 
-# Kafka配置
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 KAFKA_TOPIC_VIDEO = "claw_video"
 KAFKA_TOPIC_COMMENT = "claw_comment"
 KAFKA_TOPIC_ACCOUNT = "claw_account"
 
-# 本地记录目录（用于断点续传）
 RECORD_DIR = "sent_records"
+PROGRESS_FILE = "video_comment_progress.json"
 
-# 全局Kafka生产者（延迟初始化）
+_progress_lock = threading.Lock()
+_producer_lock = threading.Lock()
 _producer = None
 
 
 def get_producer():
-    """获取Kafka生产者（单例模式）"""
     global _producer
     if _producer is None:
-        _producer = KafkaProducer(
-            bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-            value_serializer=lambda v: json.dumps(v, ensure_ascii=False).encode("utf-8"),
-            key_serializer=lambda k: k.encode("utf-8") if k else None,
-        )
+        with _producer_lock:
+            if _producer is None:
+                _producer = KafkaProducer(
+                    bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+                    value_serializer=lambda v: json.dumps(v, ensure_ascii=False).encode("utf-8"),
+                    key_serializer=lambda k: k.encode("utf-8") if k else None,
+                )
     return _producer
 
 
 def ensure_dir(dir_path):
-    """确保目录存在"""
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
+    os.makedirs(dir_path, exist_ok=True)
 
 
 def _record_sent_id(record_file, id_value):
-    """记录已发送的ID到本地文件"""
     ensure_dir(RECORD_DIR)
     filepath = os.path.join(RECORD_DIR, record_file)
     with open(filepath, "a", encoding="utf-8") as f:
@@ -45,7 +44,6 @@ def _record_sent_id(record_file, id_value):
 
 
 def _load_sent_ids(record_file):
-    """加载已发送的ID列表"""
     filepath = os.path.join(RECORD_DIR, record_file)
     if not os.path.exists(filepath):
         return set()
@@ -59,7 +57,6 @@ def _load_sent_ids(record_file):
 
 
 def save_video(video, video_dir=None):
-    """发送视频数据到Kafka"""
     bvid = video.get("bvid")
     if not bvid:
         return False
@@ -70,7 +67,6 @@ def save_video(video, video_dir=None):
 
 
 def save_comment(comment, comment_dir=None):
-    """发送评论数据到Kafka"""
     rpid = comment.get("rpid")
     if not rpid:
         return False
@@ -82,7 +78,6 @@ def save_comment(comment, comment_dir=None):
 
 
 def save_account(account, account_dir=None):
-    """发送用户数据到Kafka"""
     mid = account.get("card", {}).get("mid")
     if not mid:
         return False
@@ -94,31 +89,91 @@ def save_account(account, account_dir=None):
 
 
 def get_saved_video_bvids(video_dir=None):
-    """获取已发送的视频bvid列表"""
     return _load_sent_ids("sent_videos.txt")
 
 
 def get_saved_comment_rpids(comment_dir=None):
-    """获取已发送的评论rpid列表"""
     return _load_sent_ids("sent_comments.txt")
 
 
 def get_saved_account_mids(account_dir=None):
-    """获取已发送的用户mid列表"""
     return _load_sent_ids("sent_accounts.txt")
 
 
 def flush_producer():
-    """刷新Kafka生产者，确保所有消息发送完成"""
     global _producer
     if _producer is not None:
         _producer.flush()
 
 
 def close_producer():
-    """关闭Kafka生产者"""
     global _producer
     if _producer is not None:
         _producer.flush()
         _producer.close()
         _producer = None
+
+
+def _get_progress_filepath():
+    ensure_dir(RECORD_DIR)
+    return os.path.join(RECORD_DIR, PROGRESS_FILE)
+
+
+def _load_progress_data():
+    filepath = _get_progress_filepath()
+    if not os.path.exists(filepath):
+        return {}
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return {}
+
+
+def _save_progress_data(data):
+    filepath = _get_progress_filepath()
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def save_video_comment_progress(bvid, cursor, aid=None):
+    with _progress_lock:
+        data = _load_progress_data()
+        if bvid not in data:
+            data[bvid] = {"done": False, "cursor": 0}
+        data[bvid]["cursor"] = cursor
+        if aid is not None:
+            data[bvid]["aid"] = aid
+        _save_progress_data(data)
+
+
+def mark_video_comments_done(bvid):
+    with _progress_lock:
+        data = _load_progress_data()
+        if bvid not in data:
+            data[bvid] = {}
+        data[bvid]["done"] = True
+        data[bvid]["cursor"] = 0
+        _save_progress_data(data)
+
+
+def get_video_comment_progress(bvid):
+    with _progress_lock:
+        data = _load_progress_data()
+        if bvid in data:
+            return {
+                "done": data[bvid].get("done", False),
+                "cursor": data[bvid].get("cursor", 0),
+                "aid": data[bvid].get("aid")
+            }
+        return {"done": False, "cursor": 0, "aid": None}
+
+
+def is_video_comments_done(bvid):
+    progress = get_video_comment_progress(bvid)
+    return progress["done"]
+
+
+def load_all_video_progress():
+    with _progress_lock:
+        return _load_progress_data()
