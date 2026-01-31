@@ -10,7 +10,8 @@ from storage import (
     save_video, save_comment, save_account,
     get_saved_video_bvids, get_saved_comment_rpids, get_saved_account_mids,
     save_video_comment_progress, mark_video_comments_done,
-    get_video_comment_progress, load_all_video_progress
+    get_video_comment_progress, load_all_video_progress,
+    save_pending_mid, get_pending_mids
 )
 
 
@@ -55,6 +56,9 @@ class BiliCrawler:
             if mid_str not in self.user_mids:
                 self.user_mids.add(mid_str)
                 if not (self.resume and mid_str in self.saved_mids):
+                    self.user_mid_queue.put(mid_str)
+                    # 持久化保存待爬取的mid
+                    save_pending_mid(mid_str)
                     self.user_mid_queue.put(mid_str)
 
     def search_worker(self, keyword, pages_per_thread, thread_id, results, session):
@@ -190,9 +194,9 @@ class BiliCrawler:
                         continue
                     self._delay()
 
-            cursor = progress["cursor"] if self.resume else 0
-            if cursor > 0:
-                print(f"[评论线程{thread_id}] {bvid} (aid={aid}) 从游标 {cursor} 恢复爬取...")
+            cursor = progress["cursor"] if self.resume else ""
+            if cursor:
+                print(f"[评论线程{thread_id}] {bvid} (aid={aid}) 从游标 {cursor[:20]}... 恢复爬取...")
             else:
                 print(f"[评论线程{thread_id}] 开始爬取 {bvid} (aid={aid}) 的评论...")
 
@@ -357,7 +361,7 @@ class BiliCrawler:
         print(f"断点续传: {'启用' if self.resume else '禁用'}")
         if self.resume and self.video_progress:
             done_count = sum(1 for p in self.video_progress.values() if p.get("done"))
-            in_progress_count = sum(1 for p in self.video_progress.values() if not p.get("done") and p.get("cursor", 0) > 0)
+            in_progress_count = sum(1 for p in self.video_progress.values() if not p.get("done") and p.get("cursor", ""))
             print(f"  - 已完成评论爬取的视频: {done_count}")
             print(f"  - 评论爬取中断的视频: {in_progress_count}")
 
@@ -365,6 +369,18 @@ class BiliCrawler:
         print("  - 评论worker: 等待视频...")
         print("  - 二级评论worker: 等待一级评论...")
         print("  - 用户worker: 等待mid...")
+
+        # 恢复未完成的用户mid
+        if self.resume:
+            pending_mids = get_pending_mids()
+            restored_count = 0
+            for mid in pending_mids:
+                if mid not in self.saved_mids:
+                    self.user_mids.add(mid)
+                    self.user_mid_queue.put(mid)
+                    restored_count += 1
+            if restored_count > 0:
+                print(f"  - 已恢复 {restored_count} 个待爬取的用户mid")
 
         comment_threads = self.start_comment_workers(n_threads)
         reply_threads = self.start_reply_workers(n_threads)

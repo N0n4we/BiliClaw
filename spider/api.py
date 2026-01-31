@@ -5,14 +5,110 @@ import requests
 import time
 import random
 import functools
+import hashlib
+import urllib.parse
 from cookie_pool import get_cookie_pool, is_cookie_error
 from rate_limiter import wait_for_token
 
 DEFAULT_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0',
     'Accept': 'application/json, text/plain, */*',
     'Referer': 'https://www.bilibili.com',
 }
+
+# WBI签名相关
+_wbi_mixin_key = None
+_wbi_key_expire_time = 0
+WBI_KEY_CACHE_SECONDS = 3600  # 缓存1小时
+
+# WBI混淆索引表（固定值）
+WBI_MIXIN_KEY_ENC_TAB = [
+    46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,
+    27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13,
+    37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4,
+    22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52
+]
+
+
+def _md5(text: str) -> str:
+    """MD5加密"""
+    return hashlib.md5(text.encode('utf-8')).hexdigest()
+
+
+def _get_mixin_key(orig: str) -> str:
+    """根据原始key生成混淆后的mixin_key"""
+    return ''.join([orig[i] for i in WBI_MIXIN_KEY_ENC_TAB])[:32]
+
+
+def _get_wbi_keys(session=None) -> tuple:
+    """
+    从B站nav接口获取img_key和sub_key
+    返回: (img_key, sub_key)
+    """
+    url = "https://api.bilibili.com/x/web-interface/nav"
+    try:
+        if session:
+            response = session.get(url, timeout=10)
+        else:
+            response = requests.get(url, headers=DEFAULT_HEADERS, timeout=10)
+
+        data = response.json()
+        # 即使未登录(code=-101)，也会返回wbi_img
+        wbi_img = data.get("data", {}).get("wbi_img")
+        if wbi_img:
+            img_url = wbi_img["img_url"]
+            sub_url = wbi_img["sub_url"]
+            # 从URL中提取key（去掉路径和扩展名）
+            img_key = img_url.rsplit('/', 1)[1].split('.')[0]
+            sub_key = sub_url.rsplit('/', 1)[1].split('.')[0]
+            return img_key, sub_key
+    except Exception as e:
+        print(f"[WBI] 获取wbi_keys失败: {e}")
+    return None, None
+
+
+def get_wbi_mixin_key(session=None) -> str:
+    """
+    获取WBI mixin_key（带缓存）
+    """
+    global _wbi_mixin_key, _wbi_key_expire_time
+
+    current_time = time.time()
+    if _wbi_mixin_key and current_time < _wbi_key_expire_time:
+        return _wbi_mixin_key
+
+    img_key, sub_key = _get_wbi_keys(session)
+    if img_key and sub_key:
+        _wbi_mixin_key = _get_mixin_key(img_key + sub_key)
+        _wbi_key_expire_time = current_time + WBI_KEY_CACHE_SECONDS
+        print(f"[WBI] 已更新mixin_key: {_wbi_mixin_key[:8]}...")
+        return _wbi_mixin_key
+
+    # 如果获取失败，使用备用盐值（可能已过期）
+    print("[WBI] 警告: 无法获取新的mixin_key，使用备用值")
+    return 'ea1db124af3c7062474693fa704f4ff8'
+
+
+def _generate_wbi_sign(params: dict, session=None) -> tuple:
+    """
+    生成WBI签名
+    params: 请求参数字典（不含wts和w_rid）
+    返回: (w_rid签名, wts时间戳)
+    """
+    mixin_key = get_wbi_mixin_key(session)
+
+    wts = int(time.time())
+    params_copy = params.copy()
+    params_copy['wts'] = wts
+
+    # 按key排序拼接参数
+    sorted_params = sorted(params_copy.items())
+    query_string = '&'.join(f'{k}={v}' for k, v in sorted_params)
+
+    # 拼接盐值并计算MD5
+    sign_string = query_string + mixin_key
+    return _md5(sign_string), wts
+
 
 def create_session():
     """创建并初始化session，从Cookie池获取Cookie"""
@@ -91,7 +187,7 @@ def _get_error_return(func_name: str, error: str):
     elif func_name in ("get_video_aid", "get_video_detail", "get_user_card"):
         return None, error
     elif func_name == "get_main_comments":
-        return [], 0, True, error
+        return [], "", True, error
     elif func_name == "get_reply_comments":
         return [], 0, error
     return None, error
@@ -193,25 +289,49 @@ def get_video_detail(bvid, session=None):
 
 
 @retry_with_backoff(max_retries=3)
-def get_main_comments(oid, cursor=0, session=None):
+def get_main_comments(oid, cursor="", session=None):
     """
-    获取主评论（一级评论）
+    获取主评论（一级评论）- 使用WBI签名API
+    cursor: 分页偏移量字符串，首页为空字符串
     返回: (comments_list, next_cursor, is_end, error_msg)
     """
-    url = "https://api.bilibili.com/x/v2/reply/main"
-    params = {
-        "mode": 3,
-        "next": cursor,
-        "oid": oid,
-        "plat": 1,
-        "type": 1
-    }
+    # 构建pagination_str
+    if cursor:
+        pagination_str = '{"offset":"%s"}' % cursor
+    else:
+        pagination_str = '{"offset":""}'
+
+    pagination_str_encoded = urllib.parse.quote(pagination_str)
+
+    # 构建签名参数
+    mode = 2  # 2=最新评论, 3=热门评论
+    plat = 1
+    type_val = 1
+    web_location = 1315875
+
+    # 获取mixin_key并生成签名
+    mixin_key = get_wbi_mixin_key(session)
+    wts = int(time.time())
+
+    # 构建签名字符串（按字母顺序排列参数）
+    if cursor:
+        sign_str = f"mode={mode}&oid={oid}&pagination_str={pagination_str_encoded}&plat={plat}&type={type_val}&web_location={web_location}&wts={wts}"
+    else:
+        sign_str = f"mode={mode}&oid={oid}&pagination_str={pagination_str_encoded}&plat={plat}&seek_rpid=&type={type_val}&web_location={web_location}&wts={wts}"
+
+    w_rid = _md5(sign_str + mixin_key)
+
+    # 直接构建URL（不使用params参数，避免requests重复编码）
+    if cursor:
+        url = f"https://api.bilibili.com/x/v2/reply/wbi/main?oid={oid}&type={type_val}&mode={mode}&pagination_str={urllib.parse.quote(pagination_str, safe=':')}&plat={plat}&web_location={web_location}&w_rid={w_rid}&wts={wts}"
+    else:
+        url = f"https://api.bilibili.com/x/v2/reply/wbi/main?oid={oid}&type={type_val}&mode={mode}&pagination_str={urllib.parse.quote(pagination_str, safe=':')}&plat={plat}&seek_rpid=&web_location={web_location}&w_rid={w_rid}&wts={wts}"
 
     try:
         if session:
-            response = session.get(url, params=params, timeout=10)
+            response = session.get(url, timeout=10)
         else:
-            response = requests.get(url, headers=DEFAULT_HEADERS, params=params, timeout=10)
+            response = requests.get(url, headers=DEFAULT_HEADERS, timeout=10)
 
         data = response.json()
 
@@ -219,17 +339,24 @@ def get_main_comments(oid, cursor=0, session=None):
         if code != 0:
             if session:
                 _handle_cookie_error(session, code)
-            return [], 0, True, data.get('message', 'Unknown error')
+            return [], "", True, data.get('message', 'Unknown error')
 
         replies = data.get("data", {}).get("replies", []) or []
+
+        # 获取下一页的offset
         cursor_info = data.get("data", {}).get("cursor", {})
-        next_cursor = cursor_info.get("next", 0)
+        pagination_reply = cursor_info.get("pagination_reply", {})
+        next_cursor = pagination_reply.get("next_offset", "")
         is_end = cursor_info.get("is_end", True)
+
+        # 如果next_offset为空或不存在，说明是最后一页
+        if not next_cursor:
+            is_end = True
 
         return replies, next_cursor, is_end, None
 
     except Exception as e:
-        return [], 0, True, str(e)
+        return [], "", True, str(e)
 
 
 @retry_with_backoff(max_retries=3)

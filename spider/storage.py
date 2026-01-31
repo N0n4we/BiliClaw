@@ -100,6 +100,23 @@ def get_saved_account_mids(account_dir=None):
     return _load_sent_ids("sent_accounts.txt")
 
 
+def save_pending_mid(mid):
+    """保存待爬取的用户mid"""
+    _record_sent_id("pending_mids.txt", str(mid))
+
+
+def get_pending_mids():
+    """获取所有待爬取的用户mid"""
+    return _load_sent_ids("pending_mids.txt")
+
+
+def clear_pending_mids():
+    """清空待爬取的用户mid文件"""
+    filepath = os.path.join(RECORD_DIR, "pending_mids.txt")
+    if os.path.exists(filepath):
+        os.remove(filepath)
+
+
 def flush_producer():
     global _producer
     if _producer is not None:
@@ -140,7 +157,7 @@ def save_video_comment_progress(bvid, cursor, aid=None):
     with _progress_lock:
         data = _load_progress_data()
         if bvid not in data:
-            data[bvid] = {"done": False, "cursor": 0}
+            data[bvid] = {"done": False, "cursor": ""}
         data[bvid]["cursor"] = cursor
         if aid is not None:
             data[bvid]["aid"] = aid
@@ -153,7 +170,7 @@ def mark_video_comments_done(bvid):
         if bvid not in data:
             data[bvid] = {}
         data[bvid]["done"] = True
-        data[bvid]["cursor"] = 0
+        data[bvid]["cursor"] = ""
         _save_progress_data(data)
 
 
@@ -163,10 +180,10 @@ def get_video_comment_progress(bvid):
         if bvid in data:
             return {
                 "done": data[bvid].get("done", False),
-                "cursor": data[bvid].get("cursor", 0),
+                "cursor": data[bvid].get("cursor", ""),
                 "aid": data[bvid].get("aid")
             }
-        return {"done": False, "cursor": 0, "aid": None}
+        return {"done": False, "cursor": "", "aid": None}
 
 
 def is_video_comments_done(bvid):
