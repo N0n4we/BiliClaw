@@ -220,10 +220,12 @@ CREATE TABLE IF NOT EXISTS biliclaw.bilibili_comment_wide
     -- ==================== 元数据 ====================
     data_source String DEFAULT 'bilibili_spider' COMMENT '数据来源',
     etl_time DateTime DEFAULT now() COMMENT 'ETL处理时间',
-    data_version String DEFAULT '1.0' COMMENT '数据版本'
+    data_version String DEFAULT '1.0' COMMENT '数据版本',
+
+    topic_keyword String COMMENT '搜索词'
 )
-ENGINE = MergeTree()
-PARTITION BY toYYYYMM(comment_ctime_dt)
+ENGINE = ReplacingMergeTree()
+PARTITION BY (topic_keyword, toYYYYMM(comment_ctime_dt))
 ORDER BY (video_bvid, rpid, comment_ctime)
 SETTINGS index_granularity = 8192
-COMMENT 'B站评论大宽表 - 以评论为粒度，包含评论、评论者、视频、UP主全维度信息';
+COMMENT 'B站评论大宽表';

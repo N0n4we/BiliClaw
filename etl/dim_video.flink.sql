@@ -45,7 +45,9 @@ CREATE TABLE kafka_video_source (
     >,
     season_id BIGINT,
     is_story BOOLEAN,
-    is_upower_exclusive BOOLEAN
+    is_upower_exclusive BOOLEAN,
+
+    topic_keyword STRING
 ) WITH (
     'connector' = 'kafka',
     'topic' = 'claw_video',
@@ -95,7 +97,9 @@ CREATE TABLE clickhouse_video_sink (
     season_id BIGINT,
     dimension_width INT,
     dimension_height INT,
-    dimension_rotate INT
+    dimension_rotate INT,
+
+    topic_keyword STRING
 ) WITH (
     'connector' = 'jdbc',
     'url' = 'jdbc:mysql://clickhouse:9004/biliclaw?useSSL=false&allowPublicKeyRetrieval=true',
@@ -146,6 +150,7 @@ SELECT
     COALESCE(season_id, 0),
     COALESCE(dimension.width, 0),
     COALESCE(dimension.height, 0),
-    COALESCE(dimension.rotate, 0)
+    COALESCE(dimension.rotate, 0),
+    COALESCE(topic_keyword, '')
 FROM kafka_video_source
 WHERE bvid IS NOT NULL AND aid IS NOT NULL;

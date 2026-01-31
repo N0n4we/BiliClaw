@@ -38,9 +38,11 @@ CREATE TABLE IF NOT EXISTS biliclaw.dim_video
     dimension_width UInt16 COMMENT '视频宽度',
     dimension_height UInt16 COMMENT '视频高度',
     dimension_rotate UInt8 COMMENT '视频旋转',
-    etl_time DateTime DEFAULT now() COMMENT 'ETL处理时间'
+    etl_time DateTime DEFAULT now() COMMENT 'ETL处理时间',
+    topic_keyword String COMMENT '搜索词'
 )
 ENGINE = ReplacingMergeTree(etl_time)
+PARTITION BY topic_keyword
 ORDER BY (bvid, aid)
 SETTINGS index_granularity = 8192
 COMMENT 'B站视频维度表';

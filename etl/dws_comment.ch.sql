@@ -150,7 +150,9 @@ SELECT
     CASE WHEN COALESCE(a.vip_status, 0) = 1 THEN 1 ELSE 0 END AS is_up_vip,
     'bilibili_spider' AS data_source,
     now() AS etl_time,
-    '1.0' AS data_version
+    '1.0' AS data_version,
+
+    v.topic_keyword AS topic_keyword
 FROM biliclaw.dim_comment AS c
 LEFT JOIN biliclaw.dim_video AS v ON c.oid = v.aid
 LEFT JOIN biliclaw.dim_account AS a ON v.owner_mid = a.mid

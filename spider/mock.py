@@ -10,6 +10,8 @@ import json
 import argparse
 from kafka import KafkaProducer
 
+keyword = 'test'
+
 # Kafka配置
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 KAFKA_TOPIC_VIDEO = "claw_video"
@@ -60,6 +62,7 @@ def send_videos(producer, video_dir):
 
     for filename, data in files:
         bvid = data.get("bvid")
+        data['topic_keyword'] = keyword
         if not bvid:
             bvid = filename.replace(".json", "")
         try:

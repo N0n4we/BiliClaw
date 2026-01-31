@@ -73,6 +73,7 @@ class BiliCrawler:
             if error:
                 print(f"[视频线程{thread_id}] {bvid} 获取详情失败: {error}")
             else:
+                detail["topic_keyword"] = self.keyword
                 if save_video(detail, self.video_dir):
                     with self.lock:
                         self.stats["videos_saved"] += 1
@@ -316,6 +317,7 @@ class BiliCrawler:
         return threads
 
     def run(self, keyword, n_threads=3, pages_per_thread=2):
+        self.keyword = keyword
         print("\n" + "=" * 60)
         print("BiliClaw 爬虫启动 (并行管道模式)")
         print("=" * 60)
