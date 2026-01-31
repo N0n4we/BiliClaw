@@ -36,6 +36,7 @@ SELECT
     c.folder_is_folded AS is_folded,
     c.invisible AS is_invisible,
     c.reply_control_support_share AS support_share,
+
     c.mid AS commenter_mid,
     c.mid_str AS commenter_mid_str,
     c.member_uname AS commenter_name,
@@ -151,9 +152,9 @@ SELECT
     'bilibili_spider' AS data_source,
     now() AS etl_time,
     '1.0' AS data_version,
-
     v.topic_keyword AS topic_keyword
 FROM biliclaw.dim_comment AS c
 LEFT JOIN biliclaw.dim_video AS v ON c.oid = v.aid
 LEFT JOIN biliclaw.dim_account AS a ON v.owner_mid = a.mid
-LEFT JOIN biliclaw.dim_account AS ca ON c.mid = ca.mid;
+LEFT JOIN biliclaw.dim_account AS ca ON c.mid = ca.mid
+SETTINGS max_partitions_per_insert_block = 0;
