@@ -19,6 +19,7 @@ CONFIG = {
     "account_dir": "accounts",   # 用户信息保存目录
     "delay_range": (2, 4),       # 请求间隔范围（秒），建议不低于2秒避免风控
     "resume": True,              # 是否启用断点续传（跳过已保存的数据）
+    "resume_pending_mids": True, # 是否恢复之前未完成的用户mid（换搜索词时可设为False）
 }
 
 
@@ -35,6 +36,7 @@ def main():
         keyword=CONFIG["keyword"],
         n_threads=CONFIG["n_threads"],
         pages_per_thread=CONFIG["pages_per_thread"],
+        resume_pending_mids=CONFIG.get("resume_pending_mids", True),
     )
 
 

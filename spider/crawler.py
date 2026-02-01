@@ -346,7 +346,7 @@ class BiliCrawler:
             t.start()
         return threads
 
-    def run(self, keyword, n_threads=3, pages_per_thread=2):
+    def run(self, keyword, n_threads=3, pages_per_thread=2, resume_pending_mids=True):
         self.keyword = keyword
         print("\n" + "=" * 60)
         print("BiliClaw 爬虫启动 (并行管道模式)")
@@ -371,7 +371,7 @@ class BiliCrawler:
         print("  - 用户worker: 等待mid...")
 
         # 恢复未完成的用户mid
-        if self.resume:
+        if self.resume and resume_pending_mids:
             pending_mids = get_pending_mids()
             restored_count = 0
             for mid in pending_mids:
