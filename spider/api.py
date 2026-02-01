@@ -111,10 +111,8 @@ def _generate_wbi_sign(params: dict, session=None) -> tuple:
 
 
 def create_session():
-    """创建并初始化session，从Cookie池获取Cookie"""
     session = requests.Session()
 
-    # 尝试从Cookie池获取Cookie
     pool = get_cookie_pool()
     cookie = pool.get_cookie()
 
@@ -122,7 +120,7 @@ def create_session():
     headers['Cookie'] = cookie
     session.headers.update(headers)
 
-    # 存储当前使用的cookie，用于失效标记
+    # 用于失效标记
     session._current_cookie = cookie
 
     session.get("https://www.bilibili.com/", timeout=10)
@@ -130,19 +128,12 @@ def create_session():
 
 
 def _handle_cookie_error(session, code: int):
-    """处理Cookie相关错误，标记失效"""
     if is_cookie_error(code) and hasattr(session, '_current_cookie') and session._current_cookie:
         pool = get_cookie_pool()
         pool.mark_invalid(session._current_cookie)
 
 
 def retry_with_backoff(max_retries: int = 3, base_delay: float = 1.0, max_delay: float = 30.0):
-    """
-    重试装饰器，使用指数退避策略
-    - max_retries: 最大重试次数
-    - base_delay: 基础延迟（秒）
-    - max_delay: 最大延迟（秒）
-    """
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -169,7 +160,7 @@ def retry_with_backoff(max_retries: int = 3, base_delay: float = 1.0, max_delay:
                     last_error = str(e)
                     if attempt < max_retries:
                         delay = min(base_delay * (2 ** attempt) + random.uniform(0, 1), max_delay)
-                        print(f"  [重试] {func.__name__} 网络错误: {e}，{delay:.1f}秒后重试...")
+                        print(f"  [重试] {func.__name__} 错误: {e}，{delay:.1f}秒后重试...")
                         time.sleep(delay)
                     else:
                         # 返回与原函数相同格式的错误

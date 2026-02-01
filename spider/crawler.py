@@ -1,6 +1,3 @@
-"""
-爬虫主模块
-"""
 import threading
 import queue
 import time
@@ -11,7 +8,7 @@ from storage import (
     get_saved_video_bvids, get_saved_comment_rpids, get_saved_account_mids,
     save_video_comment_progress, mark_video_comments_done,
     get_video_comment_progress, load_all_video_progress,
-    save_pending_mid, get_pending_mids
+    save_pending_mid, get_pending_mids, update_pending_mids
 )
 
 
@@ -56,8 +53,6 @@ class BiliCrawler:
             if mid_str not in self.user_mids:
                 self.user_mids.add(mid_str)
                 if not (self.resume and mid_str in self.saved_mids):
-                    self.user_mid_queue.put(mid_str)
-                    # 持久化保存待爬取的mid
                     save_pending_mid(mid_str)
                     self.user_mid_queue.put(mid_str)
 
@@ -96,10 +91,7 @@ class BiliCrawler:
             self._delay()
 
     def search_videos_parallel(self, keyword, n_threads, pages_per_thread):
-        print(f"\n{'='*50}")
-        print(f"阶段1: 搜索视频 (关键词: {keyword})")
-        print(f"线程数: {n_threads}, 每线程页数: {pages_per_thread}")
-        print(f"{'='*50}")
+        print(f"搜索视频 (关键词: {keyword})")
 
         results = []
         threads = []
@@ -124,8 +116,6 @@ class BiliCrawler:
                 seen_bvids.add(bvid)
                 unique_videos.append(video)
 
-        print(f"\n搜索完成: 总计 {len(results)} 条, 去重后 {len(unique_videos)} 条")
-
         if self.resume and self.saved_bvids:
             before_count = len(unique_videos)
             new_videos = []
@@ -139,14 +129,14 @@ class BiliCrawler:
             skipped = before_count - len(unique_videos)
             if skipped > 0:
                 self.stats["videos_skipped"] = skipped
-                print(f"断点续传: 跳过 {skipped} 个已保存的视频，剩余 {len(unique_videos)} 个待处理")
+
+        print(f"共 {len(unique_videos)} 个新视频")
 
         if not unique_videos:
             print("没有新视频需要获取详情")
             self.video_producers_done.set()
             return 0
 
-        print(f"\n正在获取视频详细信息...")
         chunk_size = (len(unique_videos) + n_threads - 1) // n_threads
         video_chunks = [unique_videos[i:i + chunk_size] for i in range(0, len(unique_videos), chunk_size)]
 
@@ -162,7 +152,6 @@ class BiliCrawler:
             t.join()
 
         self.video_producers_done.set()
-        print(f"\n视频获取完成，共保存 {self.stats['videos_saved']} 个视频")
 
     def comment_worker(self, thread_id, session):
         with self.lock:
@@ -198,7 +187,7 @@ class BiliCrawler:
             if cursor:
                 print(f"[评论线程{thread_id}] {bvid} (aid={aid}) 从游标 {cursor[:20]}... 恢复爬取...")
             else:
-                print(f"[评论线程{thread_id}] 开始爬取 {bvid} (aid={aid}) 的评论...")
+                print(f"[评论线程{thread_id}] {bvid} (aid={aid}) 开始爬取评论...")
 
             comment_count = 0
             while True:
@@ -348,16 +337,9 @@ class BiliCrawler:
 
     def run(self, keyword, n_threads=3, pages_per_thread=2, resume_pending_mids=True):
         self.keyword = keyword
-        print("\n" + "=" * 60)
-        print("BiliClaw 爬虫启动 (并行管道模式)")
-        print("=" * 60)
         print(f"关键词: {keyword}")
         print(f"线程数: {n_threads}")
-        print(f"每线程页数: {pages_per_thread}")
         print(f"预计搜索视频数: ~{n_threads * pages_per_thread * 50}")
-        print(f"视频保存目录: {self.video_dir}/")
-        print(f"评论保存目录: {self.comment_dir}/")
-        print(f"用户保存目录: {self.account_dir}/")
         print(f"断点续传: {'启用' if self.resume else '禁用'}")
         if self.resume and self.video_progress:
             done_count = sum(1 for p in self.video_progress.values() if p.get("done"))
@@ -365,12 +347,6 @@ class BiliCrawler:
             print(f"  - 已完成评论爬取的视频: {done_count}")
             print(f"  - 评论爬取中断的视频: {in_progress_count}")
 
-        print("\n启动并行管道...")
-        print("  - 评论worker: 等待视频...")
-        print("  - 二级评论worker: 等待一级评论...")
-        print("  - 用户worker: 等待mid...")
-
-        # 恢复未完成的用户mid
         if self.resume and resume_pending_mids:
             pending_mids = get_pending_mids()
             restored_count = 0
@@ -388,24 +364,18 @@ class BiliCrawler:
 
         self.search_videos_parallel(keyword, n_threads, pages_per_thread)
 
-        print("\n等待评论爬取完成...")
         for t in comment_threads:
             t.join()
         print(f"一级评论爬取完成，共保存 {self.stats['comments_saved']} 条")
 
-        print("\n等待二级评论爬取完成...")
         for t in reply_threads:
             t.join()
         print(f"二级评论爬取完成，共保存 {self.stats['replies_saved']} 条")
 
-        print("\n等待用户信息爬取完成...")
         for t in account_threads:
             t.join()
         print(f"用户信息爬取完成，共保存 {self.stats['accounts_saved']} 个")
 
-        print("\n" + "=" * 60)
-        print("爬虫完成!")
-        print("=" * 60)
         print(f"保存视频数: {self.stats['videos_saved']}")
         if self.stats.get('videos_skipped', 0) > 0:
             print(f"跳过视频数（已存在）: {self.stats['videos_skipped']}")
@@ -417,3 +387,11 @@ class BiliCrawler:
         print(f"保存用户数: {self.stats['accounts_saved']}")
         if self.stats.get('accounts_skipped', 0) > 0:
             print(f"跳过用户数（已存在）: {self.stats['accounts_skipped']}")
+
+        # 清理pending_mids：只保留未完成的mid
+        remaining_mids = self.user_mids - self.saved_mids
+        update_pending_mids(remaining_mids)
+        if remaining_mids:
+            print(f"剩余未爬取用户数: {len(remaining_mids)}")
+        else:
+            print("所有用户信息已爬取完成，pending_mids已清理")

@@ -101,20 +101,23 @@ def get_saved_account_mids(account_dir=None):
 
 
 def save_pending_mid(mid):
-    """保存待爬取的用户mid"""
     _record_sent_id("pending_mids.txt", str(mid))
 
 
 def get_pending_mids():
-    """获取所有待爬取的用户mid"""
     return _load_sent_ids("pending_mids.txt")
 
 
-def clear_pending_mids():
-    """清空待爬取的用户mid文件"""
+def update_pending_mids(remaining_mids):
     filepath = os.path.join(RECORD_DIR, "pending_mids.txt")
-    if os.path.exists(filepath):
-        os.remove(filepath)
+    if not remaining_mids:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        return
+    ensure_dir(RECORD_DIR)
+    with open(filepath, "w", encoding="utf-8") as f:
+        for mid in remaining_mids:
+            f.write(f"{mid}\n")
 
 
 def flush_producer():

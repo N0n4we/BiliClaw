@@ -1,10 +1,3 @@
-"""
-Mock模块 - 从本地文件夹读取数据并发送到Kafka
-模拟main.py的行为，用于测试数据管道
-
-使用方法:
-    python mock.py
-"""
 import os
 import json
 import argparse
