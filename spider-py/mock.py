@@ -1,3 +1,4 @@
+# 向Kafka发送本地数据测试Flink流水线
 import os
 import json
 import argparse
@@ -18,7 +19,6 @@ DEFAULT_ACCOUNT_DIR = "accounts"
 
 
 def create_producer():
-    """创建Kafka生产者"""
     return KafkaProducer(
         bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
         value_serializer=lambda v: json.dumps(v, ensure_ascii=False).encode("utf-8"),
@@ -27,7 +27,6 @@ def create_producer():
 
 
 def load_json_files(directory):
-    """加载目录下所有JSON文件"""
     files = []
     if not os.path.exists(directory):
         print(f"目录不存在: {directory}")
@@ -45,7 +44,6 @@ def load_json_files(directory):
 
 
 def send_videos(producer, video_dir):
-    """发送视频数据到Kafka"""
     print(f"\n{'='*50}")
     print(f"发送视频数据 (目录: {video_dir})")
     print(f"{'='*50}")
@@ -70,7 +68,6 @@ def send_videos(producer, video_dir):
 
 
 def send_comments(producer, comment_dir):
-    """发送评论数据到Kafka"""
     print(f"\n{'='*50}")
     print(f"发送评论数据 (目录: {comment_dir})")
     print(f"{'='*50}")
@@ -95,7 +92,6 @@ def send_comments(producer, comment_dir):
 
 
 def send_accounts(producer, account_dir):
-    """发送用户数据到Kafka"""
     print(f"\n{'='*50}")
     print(f"发送用户数据 (目录: {account_dir})")
     print(f"{'='*50}")

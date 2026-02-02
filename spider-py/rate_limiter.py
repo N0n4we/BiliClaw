@@ -35,6 +35,13 @@ class TokenBucket:
 _global_limiter = None
 _limiter_lock = threading.Lock()
 
+def init_rate_limiter(rate: float = 2.0, capacity: float = 5.0):
+    """Initialize the global rate limiter with custom rate and capacity"""
+    global _global_limiter
+    with _limiter_lock:
+        _global_limiter = TokenBucket(rate, capacity)
+        print(f"[RateLimiter] 已初始化: rate={rate}/s, capacity={capacity}")
+
 def get_rate_limiter(rate: float = 2.0, capacity: float = 5.0) -> TokenBucket:
     global _global_limiter
     if _global_limiter is None:

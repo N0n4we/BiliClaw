@@ -388,7 +388,6 @@ class BiliCrawler:
         if self.stats.get('accounts_skipped', 0) > 0:
             print(f"跳过用户数（已存在）: {self.stats['accounts_skipped']}")
 
-        # 清理pending_mids：只保留未完成的mid
         remaining_mids = self.user_mids - self.saved_mids
         update_pending_mids(remaining_mids)
         if remaining_mids:

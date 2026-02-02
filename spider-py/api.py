@@ -7,11 +7,19 @@ import urllib.parse
 from cookie_pool import get_cookie_pool, is_cookie_error
 from rate_limiter import wait_for_token
 
-DEFAULT_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0',
-    'Accept': 'application/json, text/plain, */*',
-    'Referer': 'https://www.bilibili.com',
-}
+_user_agent = 'Mozilla/5.0 (X11; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0'
+
+def set_user_agent(user_agent: str):
+    """Set the global User-Agent for all API requests"""
+    global _user_agent
+    _user_agent = user_agent
+
+def get_default_headers():
+    return {
+        'User-Agent': _user_agent,
+        'Accept': 'application/json, text/plain, */*',
+        'Referer': 'https://www.bilibili.com',
+    }
 
 _wbi_mixin_key = None
 _wbi_key_expire_time = 0
@@ -36,7 +44,7 @@ def _get_wbi_keys(session=None) -> tuple:
         if session:
             response = session.get(url, timeout=10)
         else:
-            response = requests.get(url, headers=DEFAULT_HEADERS, timeout=10)
+            response = requests.get(url, headers=get_default_headers(), timeout=10)
 
         data = response.json()
         # 即使未登录(code=-101)，也会返回wbi_img
@@ -90,7 +98,7 @@ def create_session():
     pool = get_cookie_pool()
     cookie = pool.get_cookie()
 
-    headers = DEFAULT_HEADERS.copy()
+    headers = get_default_headers().copy()
     headers['Cookie'] = cookie
     session.headers.update(headers)
 
@@ -167,7 +175,7 @@ def search_videos(keyword, page=1, page_size=50, session=None):
         if session:
             response = session.get(url, params=params, timeout=15)
         else:
-            response = requests.get(url, headers=DEFAULT_HEADERS, params=params, timeout=15)
+            response = requests.get(url, headers=get_default_headers(), params=params, timeout=15)
 
         data = response.json()
 
@@ -194,7 +202,7 @@ def get_video_aid(bvid, session=None):
         if session:
             response = session.get(url, params=params, timeout=10)
         else:
-            response = requests.get(url, headers=DEFAULT_HEADERS, params=params, timeout=10)
+            response = requests.get(url, headers=get_default_headers(), params=params, timeout=10)
 
         data = response.json()
 
@@ -219,7 +227,7 @@ def get_video_detail(bvid, session=None):
         if session:
             response = session.get(url, params=params, timeout=10)
         else:
-            response = requests.get(url, headers=DEFAULT_HEADERS, params=params, timeout=10)
+            response = requests.get(url, headers=get_default_headers(), params=params, timeout=10)
 
         data = response.json()
 
@@ -268,7 +276,7 @@ def get_main_comments(oid, cursor="", session=None):
         if session:
             response = session.get(url, timeout=10)
         else:
-            response = requests.get(url, headers=DEFAULT_HEADERS, timeout=10)
+            response = requests.get(url, headers=get_default_headers(), timeout=10)
 
         data = response.json()
 
@@ -309,7 +317,7 @@ def get_reply_comments(oid, root_rpid, page=1, page_size=20, session=None):
         if session:
             response = session.get(url, params=params, timeout=10)
         else:
-            response = requests.get(url, headers=DEFAULT_HEADERS, params=params, timeout=10)
+            response = requests.get(url, headers=get_default_headers(), params=params, timeout=10)
 
         data = response.json()
 
@@ -338,7 +346,7 @@ def get_user_card(mid, session=None):
         if session:
             response = session.get(url, params=params, timeout=10)
         else:
-            response = requests.get(url, headers=DEFAULT_HEADERS, params=params, timeout=10)
+            response = requests.get(url, headers=get_default_headers(), params=params, timeout=10)
 
         data = response.json()
 

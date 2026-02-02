@@ -1,0 +1,16 @@
+{
+  "keyword": "电棍otto说的道理",
+  "n_threads": 3,
+  "pages_per_thread": 2,
+  "video_dir": "videos",
+  "comment_dir": "comments",
+  "account_dir": "accounts",
+  "delay_min": 2.0,
+  "delay_max": 4.0,
+  "resume": true,
+  "resume_pending_mids": true,
+  "cookie_config_path": "cookies.json",
+  "rate_limit_rate": 2.0,
+  "rate_limit_capacity": 5.0,
+  "user_agent": "Mozilla/5.0 (X11; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0"
+}
