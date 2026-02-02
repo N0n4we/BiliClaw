@@ -1,6 +1,3 @@
-"""
-存储模块 - 向Kafka发送消息
-"""
 import os
 import json
 import threading
