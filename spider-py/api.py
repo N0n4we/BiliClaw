@@ -5,6 +5,7 @@ import functools
 import hashlib
 import urllib.parse
 from cookie_pool import get_cookie_pool, is_cookie_error
+from proxy_pool import get_proxy_pool, is_proxy_error
 from rate_limiter import wait_for_token
 
 _user_agent = 'Mozilla/5.0 (X11; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0'
@@ -102,8 +103,14 @@ def create_session():
     headers['Cookie'] = cookie
     session.headers.update(headers)
 
-    # 用于失效标记
     session._current_cookie = cookie
+
+    proxy_item = get_proxy_pool().get_proxy()
+    if proxy_item:
+        session.proxies = proxy_item.as_requests_proxy
+        session._current_proxy = proxy_item
+    else:
+        session._current_proxy = None
 
     session.get("https://www.bilibili.com/", timeout=10)
     return session
@@ -111,8 +118,12 @@ def create_session():
 
 def _handle_cookie_error(session, code: int):
     if is_cookie_error(code) and hasattr(session, '_current_cookie') and session._current_cookie:
-        pool = get_cookie_pool()
-        pool.mark_invalid(session._current_cookie)
+        get_cookie_pool().mark_invalid(session._current_cookie)
+
+
+def _handle_proxy_error(session, exc: Exception):
+    if is_proxy_error(exc) and hasattr(session, '_current_proxy') and session._current_proxy:
+        get_proxy_pool().mark_invalid(session._current_proxy.url)
 
 
 def retry_with_backoff(max_retries: int = 3, base_delay: float = 1.0, max_delay: float = 30.0):
@@ -137,6 +148,11 @@ def retry_with_backoff(max_retries: int = 3, base_delay: float = 1.0, max_delay:
                     return result
                 except requests.exceptions.RequestException as e:
                     last_error = str(e)
+                    # 如果是代理问题，标记该代理失效
+                    for arg in args:
+                        if hasattr(arg, '_current_proxy'):
+                            _handle_proxy_error(arg, e)
+                            break
                     if attempt < max_retries:
                         delay = min(base_delay * (2 ** attempt) + random.uniform(0, 1), max_delay)
                         print(f"  [重试] {func.__name__} 错误: {e}，{delay:.1f}秒后重试...")

@@ -8,6 +8,7 @@ Bilibili 数据采集爬虫，支持多线程并发与令牌桶限流，数据�
 - **令牌桶限流**：多线程环境下的精确流量控制
 - **管道化处理**：采集、解析、存储流水线解耦
 - **Cookie 池**：支持多账号轮换，降低封禁风险
+- **代理池**：支持 HTTP/SOCKS4/SOCKS5 代理轮换，自动剔除失效代理
 - **实时入仓**：数据直接写入 Kafka，支持流式处理
 
 ## 技术栈
@@ -34,6 +35,7 @@ BiliClaw/
 │   ├── api.py            # API 封装
 │   ├── crawler.py        # 爬虫核心
 │   ├── cookie_pool.py    # Cookie 池
+│   ├── proxy_pool.py     # 代理池
 │   ├── rate_limiter.py   # 限流器
 │   ├── storage.py        # 存储层
 │   └── main.py           # 入口
@@ -73,6 +75,28 @@ python main.py
   "cookie_file": "cookies.txt"
 }
 ```
+
+代理配置文件 `proxies.json`（参考 `proxies.json.template`）：
+
+```json
+{
+  "proxies": [
+    {"url": "http://user:pass@1.2.3.4:8080", "name": "proxy1", "enabled": true},
+    {"url": "socks5://user:pass@1.2.3.5:1080", "name": "proxy2", "enabled": true}
+  ],
+  "settings": {
+    "strategy": "round_robin"
+  }
+}
+```
+
+支持的代理协议：`http`、`https`、`socks4`、`socks5`、`socks5h`
+
+轮换策略：
+- `round_robin`（默认）：顺序轮换
+- `random`：随机选取
+
+代理失败超过 `max_fails`（默认 3 次）后自动禁用，不影响其他代理正常工作。
 
 ## 架构图
 

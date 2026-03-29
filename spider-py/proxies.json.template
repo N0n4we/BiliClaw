@@ -1,0 +1,10 @@
+{
+  "proxies": [
+    {"url": "http://user:pass@1.2.3.4:8080", "name": "proxy1", "enabled": true},
+    {"url": "socks5://user:pass@1.2.3.5:1080", "name": "proxy2", "enabled": true},
+    {"url": "socks5h://1.2.3.6:1080", "name": "proxy3", "enabled": false}
+  ],
+  "settings": {
+    "strategy": "round_robin"
+  }
+}
